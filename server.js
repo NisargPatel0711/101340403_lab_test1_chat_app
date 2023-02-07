@@ -1,26 +1,39 @@
 const app = require("express")();
 const express = require("express");
-const http = require("http").createServer(app);
+const server = require("http").createServer(app);
 const cors = require("cors");
 const mongoose = require("mongoose");
-mongoose.set('strictQuery', false);
-const userModel = require(__dirname + "/models/User");
+mongoose.set("strictQuery", false);
 
+const userModel = require(__dirname + "/models/User");
 const gmModel = require(__dirname + "/models/Message");
 
 const PORT = 8080 || process.env.PORT;
 
-//create server side socket
-const io = require("socket.io")(http);
-
 app.use(cors());
-users = [];
+app.use(
+    express.urlencoded({
+        extended: true,
+    })
+);
 
+// const formatMessage = require("./models/messages");
+// const {
+//     userJoin,
+//     getCurrentUser,
+//     userLeave,
+//     getRoomUsers,
+// } = require("./models/users");
+
+//create server side socket
+const io = require("socket.io")(server);
+
+// Run when client connects
 io.on("connection", (socket) => {
     console.log("Connected ");
-    socket.emit("welcome", "Welcome to Socket Programming : " + socket.id);
     socket.on("message", async (data) => {
         const message = {
+            id: socket.id,
             username: data.username,
             message: data.message,
         };
@@ -47,10 +60,11 @@ io.on("connection", (socket) => {
     });
 
     //Group/Room Join
-    socket.on("joinroom", (room, username) => {
+    socket.on("joinroom", (id, room, username) => {
         socket.join(room);
         socket.broadcast.to(room).emit("joined", username);
     });
+    
     socket.on("leaveRoom", (room, username) => {
         socket.broadcast.to(room).emit("left", username);
     });
@@ -59,12 +73,6 @@ io.on("connection", (socket) => {
         console.log(`${socket.id} disconnected`);
     });
 });
-
-app.use(
-    express.urlencoded({
-        extended: true,
-    })
-);
 
 app.use(express.json());
 mongoose
@@ -82,7 +90,19 @@ mongoose
         console.log("Error Mongodb connection");
     });
 
-app.post("/login", async (req, res) => {
+app.get("/", (req, res) => {
+    res.redirect("/login");
+});
+
+app.get("/signup", (req, res) => {
+    res.sendFile(__dirname + "/Pages/signup.html");
+});
+
+app.get("/login", (req, res) => {
+    res.sendFile(__dirname + "/Pages/login.html");
+});
+
+app.post("/signup", async (req, res) => {
     const user = new userModel(req.body);
     try {
         await user.save((err) => {
@@ -90,10 +110,9 @@ app.post("/login", async (req, res) => {
                 if (err.code === 11000) {
                     return res.redirect("/signup?err=username");
                 }
-
                 res.send(err);
             } else {
-                res.sendFile(__dirname + "/login.html");
+                res.redirect("/login");
             }
         });
     } catch (err) {
@@ -101,19 +120,15 @@ app.post("/login", async (req, res) => {
     }
 });
 
-app.get("/", (req, res) => {
-    res.sendFile(__dirname + "/Pages/signup.html");
-});
-
-app.post("/", async (req, res) => {
+app.post("/login", async (req, res) => {
     const username = req.body.username;
     const password = req.body.password;
 
-    const user = await userModel.find({ username: username });
+    const user = await userModel.findOne({ username: username });
     try {
-        if (user.length != 0) {
-            if (user[0].password == password) {
-                return res.redirect("/?uname=" + username);
+        if (user != null) {
+            if (user.password == password) {
+                return res.redirect("/rooms?uname=" + username);
             } else {
                 return res.redirect("/login?wrong=pass");
             }
@@ -121,28 +136,26 @@ app.post("/", async (req, res) => {
             return res.redirect("/login?wrong=uname");
         }
     } catch (err) {
+        console.log(err);
         res.status(500).send(err);
     }
 });
-app.get("/index", (req, res) => {
-    res.sendFile(__dirname + "/index.html");
+
+app.get("/rooms", (req, res) => {
+    res.sendFile(__dirname + "/Pages/rooms.html");
 });
 
-app.get("/main", (req, res) => {
-    res.sendFile(__dirname + "/main.html");
+app.get("/chat", (req, res) => {
+    res.sendFile(__dirname + "/Pages/chat.html");
 });
 
-app.get("/main/:room", async (req, res) => {
+app.get("/chat/:room", async (req, res) => {
     const room = req.params.room;
     const msg = await gmModel
         .find({ room: room })
         .sort({ date_sent: "desc" })
         .limit(10);
-    res.sendFile(__dirname + "/main.html");
-});
-
-app.get("/login", (req, res) => {
-    res.sendFile(__dirname + "/Pages/login.html");
+    res.sendFile(__dirname + "/Pages/chat.html");
 });
 
 app.post("/chathistory", async (req, res) => {
@@ -155,6 +168,6 @@ app.post("/chathistory", async (req, res) => {
     }
 });
 
-http.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
